@@ -1,6 +1,6 @@
 # Dependencies
-node_modules/
-/client/node_modules/
+/node_modules
+/client/node_modules
 
 # Environment variables
 .env
@@ -9,22 +9,24 @@ node_modules/
 .env.test.local
 .env.production.local
 
-# Credenciales
+# Google Wallet credentials
 google-wallet-key.json
+
+# Build files
+/client/build
+/build
 
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build
-/client/build/
-/build/
-
-# IDE
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db

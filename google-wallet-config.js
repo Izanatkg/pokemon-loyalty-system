@@ -1,15 +1,24 @@
 require('dotenv').config();
+const path = require('path');
 const { GoogleAuth } = require('google-auth-library');
 
-const ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID;
+// Configuración de Google Wallet
+const ISSUER_ID = '3388000000022884108';
 const CLASS_ID = `${ISSUER_ID}.pokemon_loyalty_card`;
-const CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+
+// Lista de orígenes permitidos
+const ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://192.168.100.2:3000'
+];
 
 // Configurar autenticación usando credenciales de servicio
 const auth = new GoogleAuth({
-    scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
-    keyFile: './google-wallet-key.json' // Archivo de credenciales de servicio
+    keyFilename: path.resolve(__dirname, 'google-wallet-key.json'),
+    scopes: [
+        'https://www.googleapis.com/auth/wallet_object.issuer',
+        'https://www.googleapis.com/auth/wallet.objects.readonly'
+    ]
 });
 
 const loyaltyClass = {
@@ -31,19 +40,31 @@ const loyaltyClass = {
     locations: [
         {
             address: {
-                addressLines: ['Dirección de Mamitas Tepic'],
+                addressLines: ['Av. México 108'],
                 locality: 'Tepic',
                 administrativeArea: 'Nayarit',
-                countryCode: 'MX'
-            }
+                countryCode: 'MX',
+                postalCode: '63000'
+            },
+            latitude: 21.5039,
+            longitude: -104.8946
         }
-    ]
+    ],
+    linksModuleData: {
+        uris: [
+            {
+                uri: 'https://r.loyverse.com/dashboard/',
+                description: 'Ver mis puntos',
+                id: 'points'
+            }
+        ]
+    }
 };
 
 module.exports = {
     auth,
     ISSUER_ID,
     CLASS_ID,
-    CLIENT_ID,
-    loyaltyClass
+    loyaltyClass,
+    ALLOWED_ORIGINS
 };

@@ -1,95 +1,79 @@
-const axios = require('axios');
-const { auth, ISSUER_ID, CLASS_ID, CLIENT_ID, loyaltyClass } = require('./google-wallet-config');
+const jwt = require('jsonwebtoken');
+const fs = require('fs').promises;
+const path = require('path');
 
 class GoogleWalletService {
     constructor() {
-        this.baseUrl = 'https://walletobjects.googleapis.com/walletobjects/v1';
+        this.ISSUER_ID = process.env.GOOGLE_WALLET_ISSUER_ID || '3388000000022884108';
+        this.CLASS_ID = `${this.ISSUER_ID}.pokemon_loyalty_card`;
     }
 
-    async getAuthToken() {
-        const client = await auth.getClient();
-        const token = await client.getAccessToken();
-        return token.token;
-    }
-
-    async createLoyaltyObject(userId, customerInfo) {
-        const objectId = `${ISSUER_ID}.user-${userId}`;
-        const loyaltyObject = {
-            id: objectId,
-            classId: CLASS_ID,
-            state: 'ACTIVE',
-            accountId: customerInfo.email,
-            accountName: customerInfo.name,
-            barcode: {
-                type: 'QR_CODE',
-                value: userId
-            },
-            loyaltyPoints: {
-                balance: {
-                    string: '0'
-                },
-                label: 'Puntos disponibles'
-            },
-            messages: [
-                {
-                    header: '¡Bienvenido Entrenador!',
-                    body: 'Obtén 10% de descuento en tu primera compra'
-                }
-            ],
-            locations: loyaltyClass.locations
-        };
-
+    async createPass(userId, customerInfo) {
         try {
-            const token = await this.getAuthToken();
-            
-            // Primero crear el objeto en Google Wallet
-            await axios.post(
-                `${this.baseUrl}/loyaltyObject`,
-                loyaltyObject,
-                {
-                    headers: { 
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
+            // Definir el objeto de lealtad
+            const objectId = `${this.ISSUER_ID}.user_${userId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-            // Generar URL para agregar a Google Wallet
+            // Crear el JWT payload
+            const claims = {
+                iss: process.env.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL,
+                aud: 'google',
+                origins: ['http://localhost:3000', 'http://192.168.100.2:3000'],
+                typ: 'savetowallet',
+                payload: {
+                    genericObjects: [{
+                        id: objectId,
+                        classId: this.CLASS_ID,
+                        genericType: "LOYALTY_CLASS",
+                        logo: {
+                            sourceUri: {
+                                uri: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png"
+                            }
+                        },
+                        cardTitle: {
+                            defaultValue: {
+                                language: "es",
+                                value: "Club Pokémon"
+                            }
+                        },
+                        subheader: {
+                            defaultValue: {
+                                language: "es",
+                                value: customerInfo.name
+                            }
+                        },
+                        header: {
+                            defaultValue: {
+                                language: "es",
+                                value: "Mamitas Tepic"
+                            }
+                        },
+                        barcode: {
+                            type: "QR_CODE",
+                            value: userId
+                        },
+                        hexBackgroundColor: "#FF5733",
+                        heroImage: {
+                            sourceUri: {
+                                uri: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png"
+                            }
+                        }
+                    }]
+                }
+            };
+
+            // Firmar el JWT con la clave privada
+            const privateKey = process.env.GOOGLE_WALLET_PRIVATE_KEY.replace(/\\n/g, '\n');
+            const token = jwt.sign(claims, privateKey, { algorithm: 'RS256' });
+            
+            // Generar la URL de "Add to Google Wallet"
             const saveUrl = `https://pay.google.com/gp/v/save/${token}`;
+            console.log('Generated save URL:', saveUrl);
+            
             return saveUrl;
 
         } catch (error) {
-            if (error.response?.status === 409) {
-                // El objeto ya existe, podemos continuar
-                const token = await this.getAuthToken();
-                return `https://pay.google.com/gp/v/save/${token}`;
-            }
-            console.error('Error creating loyalty object:', error.response?.data || error.message);
+            console.error('Error in createPass:', error);
             throw error;
-        }
-    }
-
-    async updateLoyaltyPoints(userId, newPoints) {
-        const objectId = `${ISSUER_ID}.user-${userId}`;
-        try {
-            const token = await this.getAuthToken();
-            await axios.patch(
-                `${this.baseUrl}/loyaltyObject/${objectId}`,
-                {
-                    loyaltyPoints: {
-                        balance: {
-                            string: newPoints.toString()
-                        }
-                    }
-                },
-                {
-                    headers: { Authorization: `Bearer ${token}` }
-                }
-            );
-            return true;
-        } catch (error) {
-            console.error('Error updating loyalty points:', error.response?.data || error.message);
-            return false;
         }
     }
 }

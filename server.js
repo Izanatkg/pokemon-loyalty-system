@@ -1,31 +1,52 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
-const QRCode = require('qrcode');
 const axios = require('axios');
 const googleWalletService = require('./google-wallet-service');
-
-dotenv.config();
+const loyverseService = require('./loyverse-service');
 
 const app = express();
-const LOYVERSE_TOKEN = '68c66646696548af983a2a0b8e64c2ec';
-const LOYVERSE_API_URL = 'https://api.loyverse.com/v1.0';
+const port = process.env.PORT || 5000;
 
-// CORS configuration
+// Configurar CORS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: ['http://localhost:3000', 'http://192.168.100.2:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    credentials: true
 }));
 
-// Middleware
 app.use(express.json());
 
-// Debug middleware for logging requests
+// Configurar Loyverse API
+const loyverseApi = axios.create({
+    baseURL: 'https://api.loyverse.com/v1.0',
+    headers: {
+        'Authorization': `Bearer ${process.env.LOYVERSE_TOKEN}`,
+        'Content-Type': 'application/json'
+    }
+});
+
+// Verificar conexión con Loyverse
+async function checkLoyverseConnection() {
+    try {
+        const response = await loyverseApi.get('/stores');
+        console.log('Successfully connected to Loyverse API');
+        console.log('Store information:', JSON.stringify(response.data, null, 2));
+        return true;
+    } catch (error) {
+        console.error('Error connecting to Loyverse:', error.response?.data || error.message);
+        return false;
+    }
+}
+
+// Verificar conexión al inicio
+checkLoyverseConnection();
+
+// Middleware
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
     if (req.method === 'POST') {
-        console.log('Request body:', req.body);
+        console.log('Request body:', JSON.stringify(req.body, null, 2));
     }
     next();
 });
@@ -39,31 +60,15 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Loyverse API integration
-const loyverseApi = axios.create({
-    baseURL: LOYVERSE_API_URL,
-    headers: {
-        'Authorization': `Bearer ${LOYVERSE_TOKEN}`,
-        'Content-Type': 'application/json'
-    }
-});
-
-// Test Loyverse connection on startup
-loyverseApi.get('/stores')
-    .then(response => {
-        console.log('Successfully connected to Loyverse API');
-        console.log('Store information:', response.data);
-    })
-    .catch(error => {
-        console.error('Error connecting to Loyverse:', error.response?.data || error.message);
-    });
-
-// Routes
+// Ruta de registro
 app.post('/api/register', async (req, res) => {
-    console.log('Starting registration process...');
+    console.log(new Date().toISOString(), '- POST /api/register');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+    const { fullName, email, phone, isQRRegistration } = req.body;
+
     try {
-        const { fullName, email, phone, isQRRegistration } = req.body;
-        
+        // Validar campos requeridos
         if (!fullName || !email || !phone) {
             return res.status(400).json({
                 success: false,
@@ -89,8 +94,7 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        console.log('Creating customer in Loyverse...');
-        // Register user in Loyverse
+        // Registrar cliente en Loyverse
         const loyverseCustomerData = {
             name: fullName,
             email: email,
@@ -101,6 +105,7 @@ app.post('/api/register', async (req, res) => {
 
         console.log('Sending to Loyverse:', JSON.stringify(loyverseCustomerData, null, 2));
         const loyverseResponse = await loyverseApi.post('/customers', loyverseCustomerData);
+        console.log('Loyverse response:', JSON.stringify(loyverseResponse.data, null, 2));
 
         if (!loyverseResponse.data || !loyverseResponse.data.id) {
             console.error('Invalid Loyverse response:', loyverseResponse.data);
@@ -110,57 +115,34 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        console.log('Loyverse customer created:', loyverseResponse.data);
-
         // Crear pase de Google Wallet
-        console.log('Creating Google Wallet pass...');
-        try {
-            const walletUrl = await googleWalletService.createLoyaltyObject(
-                loyverseResponse.data.id,
-                {
-                    name: fullName,
-                    email: email
-                }
-            );
+        const walletUrl = await googleWalletService.createPass(
+            loyverseResponse.data.id,
+            {
+                name: fullName,
+                email: email
+            }
+        );
 
-            console.log('Registration process completed successfully');
-            return res.status(201).json({
-                success: true,
-                message: "Usuario registrado exitosamente",
-                welcomeBonus: "10% en tu primera compra",
-                user: {
-                    fullName,
-                    email,
-                    phone,
-                    loyverseId: loyverseResponse.data.id,
-                    isQRRegistration
-                },
-                walletUrl: walletUrl
-            });
-        } catch (walletError) {
-            console.error('Wallet error:', walletError);
-            return res.status(201).json({
-                success: true,
-                message: "Usuario registrado exitosamente, pero hubo un problema al crear la tarjeta de Google Wallet",
-                user: {
-                    fullName,
-                    email,
-                    phone,
-                    loyverseId: loyverseResponse.data.id,
-                    isQRRegistration
-                },
-                walletError: 'No se pudo crear la tarjeta de Google Wallet. Por favor intente más tarde.'
-            });
-        }
+        console.log('Registration process completed successfully');
+        res.json({
+            success: true,
+            message: 'Usuario registrado exitosamente',
+            welcomeBonus: "10% en tu primera compra",
+            user: {
+                fullName,
+                email,
+                phone,
+                loyverseId: loyverseResponse.data.id,
+                isQRRegistration
+            },
+            walletUrl
+        });
     } catch (error) {
-        console.error('Registration error:', error.response?.data || error.message);
-        const errorMessage = error.response?.data?.message || 
-                           error.response?.data?.error?.message ||
-                           error.message || 
-                           "Error al registrar usuario";
-        return res.status(400).json({
+        console.error('Error in registration:', error.response?.data || error);
+        res.status(500).json({
             success: false,
-            message: errorMessage
+            message: error.response?.data?.message || error.message || 'Error en el registro'
         });
     }
 });
@@ -205,7 +187,6 @@ app.post('/api/update-points', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Server running on port ${port}`);
 });
