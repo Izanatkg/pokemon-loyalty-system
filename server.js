@@ -234,6 +234,41 @@ app.get('/api/points/:customerId', async (req, res) => {
     }
 });
 
+// Webhook para recibir actualizaciones de Loyverse
+app.post('/api/loyverse-webhook', async (req, res) => {
+    try {
+        const { type, data } = req.body;
+        
+        // Verificar si es una actualización de puntos de lealtad
+        if (type === 'customer.loyalty_points_changed') {
+            const customerId = data.customer_id;
+            const newPoints = data.loyalty_points;
+            
+            console.log(`Recibida actualización de puntos para cliente ${customerId}: ${newPoints} puntos`);
+            
+            // Obtener información del cliente
+            const customerResponse = await loyverseApi.get(`/customers/${customerId}`);
+            const customer = customerResponse.data;
+            
+            // Actualizar los puntos en Google Wallet
+            await googleWalletService.updateLoyaltyPoints(
+                customerId,
+                newPoints
+            );
+            
+            console.log('Puntos actualizados en Google Wallet exitosamente');
+        }
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error en webhook de Loyverse:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 app.listen(port, '0.0.0.0', async () => {
     try {
         console.log('Server running on port', port);
